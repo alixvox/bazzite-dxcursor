@@ -121,7 +121,9 @@ jobs:
       - name: Generate output image ref
         id: gen_image_ref
         run: |
-          echo "IMAGE_NAME=${BASE_IMAGE/bazzite/bazzite-dx}" | sed 's/-deck//' | tee -a "$GITHUB_ENV"
+          # Repo name + variant suffix so we get bazzite-dxcursor, bazzite-dxcursor-gnome, etc.
+          SUFFIX=$(echo "${{ matrix.base_image }}" | sed 's/bazzite-deck//')
+          echo "IMAGE_NAME=${{ github.event.repository.name }}${SUFFIX}" | tee -a "$GITHUB_ENV"
 
       # Image metadata for https://artifacthub.io/ - This is optional but is highly recommended so we all can get a index of all the custom images
       # The metadata by itself is not going to do anything, you choose if you want your image to be on ArtifactHub or not.
@@ -251,6 +253,8 @@ jobs:
           TAGS: ${{ steps.push.outputs.digest }}
           COSIGN_EXPERIMENTAL: false
           COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
+          # Set COSIGN_PASSWORD secret in the repo if you generated the key with a password
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
         run: |
           IMAGE_FULL="${LOWERCASE_REGISTRY}/${LOWERCASE_IMAGE}"
           for tag in ${TAGS_TO_SIGN}; do

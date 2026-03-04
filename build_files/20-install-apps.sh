@@ -68,6 +68,29 @@ dnf5 config-manager setopt vscode.gpgcheck=0
 dnf5 install --nogpgcheck --enable-repo="vscode" -y \
     code
 
+# Cursor: no dnf repo; install from official RPM URL.
+# We store the full version (e.g. 2.6.11) in build_files/CURSOR_VERSION for tracking, but the
+# download URL only accepts major.minor (e.g. 2.6) and serves the latest 2.6.x build.
+if [[ -n "${CONTEXT_PATH:-}" ]] && [[ -f "${CONTEXT_PATH}/build_files/CURSOR_VERSION" ]]; then
+    CURSOR_VERSION=$(tr -d '\n\r' < "${CONTEXT_PATH}/build_files/CURSOR_VERSION" | xargs)
+else
+    CURSOR_VERSION="${CURSOR_VERSION:-2.6.11}"
+fi
+# Derive major.minor for the URL path only (2.6.11 -> 2.6)
+CURSOR_MAJOR_MINOR="${CURSOR_VERSION%.*}"
+[[ -z "$CURSOR_MAJOR_MINOR" ]] && CURSOR_MAJOR_MINOR="$CURSOR_VERSION"
+case "$(uname -m)" in
+    x86_64)  CURSOR_ARCH="linux-x64-rpm" ;;
+    aarch64) CURSOR_ARCH="linux-arm64-rpm" ;;
+    *)       echo "::warning::Unsupported arch for Cursor: $(uname -m), skipping" ; CURSOR_ARCH="" ;;
+esac
+if [[ -n "$CURSOR_ARCH" ]]; then
+    CURSOR_RPM_URL="https://api2.cursor.sh/updates/download/golden/${CURSOR_ARCH}/cursor/${CURSOR_MAJOR_MINOR}"
+    curl -sSLf -o /tmp/cursor.rpm "$CURSOR_RPM_URL"
+    dnf5 install -y /tmp/cursor.rpm
+    rm -f /tmp/cursor.rpm
+fi
+
 docker_pkgs=(
     containerd.io
     docker-buildx-plugin
