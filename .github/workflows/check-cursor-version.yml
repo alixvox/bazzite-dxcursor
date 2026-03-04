@@ -1,0 +1,117 @@
+# When the Cursor API reports a version newer than build_files/CURSOR_VERSION,
+# this workflow updates that file, pushes to the default branch, and triggers the image build.
+---
+name: Check Cursor version
+
+on:
+  schedule:
+    - cron: "0 12 * * *"
+  workflow_dispatch:
+
+env:
+  # Fallback when CURSOR_VERSION file is missing (e.g. first run)
+  CURSOR_VERSION_FALLBACK: "2.6.11"
+
+jobs:
+  check:
+    name: Check Cursor API version
+    runs-on: ubuntu-24.04
+    outputs:
+      version_changed: ${{ steps.compare.outputs.changed }}
+      new_version: ${{ steps.compare.outputs.new_version }}
+      current_pinned: ${{ steps.compare.outputs.pinned }}
+
+    steps:
+      - name: Checkout (default branch)
+        uses: actions/checkout@v4
+        with:
+          # On schedule or workflow_dispatch we run against the default branch
+          ref: ${{ github.ref }}
+
+      - name: Read pinned Cursor version
+        id: pinned
+        run: |
+          if [ -f build_files/CURSOR_VERSION ]; then
+            pin=$(cat build_files/CURSOR_VERSION | tr -d '\n\r' | xargs)
+          else
+            pin="${{ env.CURSOR_VERSION_FALLBACK }}"
+          fi
+          echo "version=$pin" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch latest Cursor version from API
+        id: api
+        run: |
+          resp=$(curl -sSf "https://www.cursor.com/api/download?platform=linux-x64&releaseTrack=latest")
+          echo "version=$(echo "$resp" | jq -r '.version')" >> "$GITHUB_OUTPUT"
+          echo "API response: $resp"
+
+      - name: Compare with pinned version
+        id: compare
+        run: |
+          pinned="${{ steps.pinned.outputs.version }}"
+          new="${{ steps.api.outputs.version }}"
+          echo "pinned=$pinned" >> "$GITHUB_OUTPUT"
+          echo "new_version=$new" >> "$GITHUB_OUTPUT"
+          if [ -z "$new" ] || [ "$new" = "null" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Could not read version from API"
+            exit 0
+          fi
+          if [ "$(printf '%s\n%s\n' "$pinned" "$new" | sort -V | head -n1)" = "$pinned" ] && [ "$pinned" != "$new" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "New Cursor version available: $new (pinned: $pinned)"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No new version (pinned: $pinned, API: $new)"
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Cursor version check" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Pinned (from repo):** ${{ steps.compare.outputs.pinned }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **API (latest):** ${{ steps.api.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **New version available:** ${{ steps.compare.outputs.changed }}" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ steps.compare.outputs.changed }}" = "true" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Bump job will update \`build_files/CURSOR_VERSION\` and trigger the image build." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  bump-and-push:
+    name: Bump Cursor version and trigger build
+    runs-on: ubuntu-24.04
+    needs: check
+    if: needs.check.outputs.version_changed == 'true'
+    permissions:
+      contents: write
+      actions: write
+
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update CURSOR_VERSION file
+        run: |
+          echo "${{ needs.check.outputs.new_version }}" > build_files/CURSOR_VERSION
+          cat build_files/CURSOR_VERSION
+
+      - name: Commit and push version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add build_files/CURSOR_VERSION
+          git diff --staged --quiet && exit 0
+          git commit -m "chore: bump Cursor to ${{ needs.check.outputs.new_version }}"
+          git push
+
+      - name: Trigger image build
+        run: |
+          ref="${{ github.ref_name }}"
+          curl -sSf -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/build.yml/dispatches" \
+            -d "{\"ref\":\"$ref\"}"
