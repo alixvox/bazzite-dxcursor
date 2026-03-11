@@ -1,6 +1,9 @@
 ---
-name: Build Bazzite DX
+name: Build Bazzite DX Cursor
 on:
+  push:
+    branches:
+      - main
   repository_dispatch:
     types:
       - build
@@ -26,7 +29,7 @@ concurrency:
 
 jobs:
   build_push:
-    name: Build and push image
+    name: Build and push bazzite-dxcursor image
     runs-on: ubuntu-24.04
 
     strategy:

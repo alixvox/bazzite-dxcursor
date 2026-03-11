@@ -10,7 +10,7 @@ on:
 
 env:
   # Fallback when CURSOR_VERSION file is missing (e.g. first run)
-  CURSOR_VERSION_FALLBACK: "2.6.11"
+  CURSOR_VERSION_FALLBACK: "2.6.18"
 
 jobs:
   check:
@@ -38,12 +38,44 @@ jobs:
           fi
           echo "version=$pin" >> "$GITHUB_OUTPUT"
 
-      - name: Fetch latest Cursor version from API
+      - name: Fetch latest Cursor version
         id: api
         run: |
-          resp=$(curl -sSf "https://www.cursor.com/api/download?platform=linux-x64&releaseTrack=latest")
-          echo "version=$(echo "$resp" | jq -r '.version')" >> "$GITHUB_OUTPUT"
-          echo "API response: $resp"
+          api_version=""
+          rpm_version=""
+
+          # ── Source 1: cursor.com download API ──
+          if resp=$(curl -sSf "https://www.cursor.com/api/download?platform=linux-x64&releaseTrack=latest" 2>/dev/null); then
+            api_version=$(echo "$resp" | jq -r '.version // empty' 2>/dev/null || true)
+          fi
+          echo "API version: ${api_version:-<unavailable>}"
+
+          # ── Source 2: RPM download redirect ──
+          # The download URL takes major.minor (e.g. 2.6) but the RPM it
+          # redirects to contains the full three-part version (cursor-2.6.18…).
+          pinned="${{ steps.pinned.outputs.version }}"
+          major_minor="${pinned%.*}"
+          : "${major_minor:=$pinned}"
+          rpm_url="https://api2.cursor.sh/updates/download/golden/linux-x64-rpm/cursor/${major_minor}"
+          if redirect=$(curl -sSf -o /dev/null -w '%{redirect_url}' "$rpm_url" 2>/dev/null); then
+            rpm_version=$(echo "$redirect" | sed -n 's|.*/cursor-\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)\..*|\1|p')
+          fi
+          echo "RPM redirect version: ${rpm_version:-<unavailable>}"
+
+          # ── Pick the newest valid version from either source ──
+          version=""
+          for v in "$api_version" "$rpm_version"; do
+            [ -z "$v" ] || [ "$v" = "null" ] && continue
+            if [ -z "$version" ]; then
+              version="$v"
+            else
+              newer=$(printf '%s\n%s' "$version" "$v" | sort -V | tail -n1)
+              version="$newer"
+            fi
+          done
+
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Resolved latest version: ${version:-NONE}"
 
       - name: Compare with pinned version
         id: compare
@@ -54,7 +86,7 @@ jobs:
           echo "new_version=$new" >> "$GITHUB_OUTPUT"
           if [ -z "$new" ] || [ "$new" = "null" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "Could not read version from API"
+            echo "::warning::Could not determine latest Cursor version from any source"
             exit 0
           fi
           if [ "$(printf '%s\n%s\n' "$pinned" "$new" | sort -V | head -n1)" = "$pinned" ] && [ "$pinned" != "$new" ]; then
@@ -62,7 +94,7 @@ jobs:
             echo "New Cursor version available: $new (pinned: $pinned)"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "No new version (pinned: $pinned, API: $new)"
+            echo "No new version (pinned: $pinned, latest: $new)"
           fi
 
       - name: Summary

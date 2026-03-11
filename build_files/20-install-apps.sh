@@ -74,7 +74,7 @@ dnf5 install --nogpgcheck --enable-repo="vscode" -y \
 if [[ -n "${CONTEXT_PATH:-}" ]] && [[ -f "${CONTEXT_PATH}/build_files/CURSOR_VERSION" ]]; then
     CURSOR_VERSION=$(tr -d '\n\r' < "${CONTEXT_PATH}/build_files/CURSOR_VERSION" | xargs)
 else
-    CURSOR_VERSION="${CURSOR_VERSION:-2.6.11}"
+    CURSOR_VERSION="${CURSOR_VERSION:-2.6.18}"
 fi
 # Derive major.minor for the URL path only (2.6.11 -> 2.6)
 CURSOR_MAJOR_MINOR="${CURSOR_VERSION%.*}"
