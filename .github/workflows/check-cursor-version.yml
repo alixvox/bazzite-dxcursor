@@ -5,7 +5,7 @@ name: Check Cursor version
 
 on:
   schedule:
-    - cron: "0 7 * * 1,4"
+    - cron: "0 20 * * 1,3,5"
   workflow_dispatch:
 
 env:
