@@ -1,6 +1,8 @@
 ---
 name: Build Bazzite DX Cursor
 on:
+  schedule:
+    - cron: "30 5 * * *" # daily at 05:30 UTC
   push:
     branches:
       - main
