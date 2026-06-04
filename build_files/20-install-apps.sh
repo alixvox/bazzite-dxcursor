@@ -14,13 +14,28 @@ dnf5 install -y \
     podman-machine \
     podman-tui \
     python3-ramalama \
-    qemu-kvm \
     restic \
     rclone \
     sysprof \
     tiptop \
     usbmuxd \
+    waypipe \
     zsh
+
+dnf5 remove -y \
+    mesa-libOpenCL
+
+dnf5 --setopt=install_weak_deps=False install -y \
+    rocm-hip \
+    rocm-opencl \
+    rocm-clinfo \
+    rocm-smi \
+    qemu \
+    libvirt \
+    qemu-kvm \
+    virt-manager \
+    edk2-ovmf \
+    guestfs-tools
 
 # Restore UUPD update timer and Input Remapper
 sed -i 's@^NoDisplay=true@NoDisplay=false@' /usr/share/applications/input-remapper-gtk.desktop
@@ -68,32 +83,33 @@ dnf5 config-manager setopt vscode.gpgcheck=0
 dnf5 install --nogpgcheck --enable-repo="vscode" -y \
     code
 
-# Cursor: no dnf repo; fetch the latest version from the Cursor API and install
-# the RPM. The download endpoint requires a major.minor path segment (e.g. 3.1),
-# so we derive it from the API-reported version. Falls back to CURSOR_VERSION file
-# if the API is unreachable.
-CURSOR_VERSION=""
-if api_resp=$(curl -sSfL "https://cursor.com/api/download?platform=linux-x64&releaseTrack=latest" 2>/dev/null); then
-    CURSOR_VERSION=$(echo "$api_resp" | jq -r '.version // empty' 2>/dev/null || true)
-fi
-if [[ -z "$CURSOR_VERSION" ]]; then
-    echo "::warning::Cursor API unreachable, falling back to CURSOR_VERSION file"
-    if [[ -n "${CONTEXT_PATH:-}" ]] && [[ -f "${CONTEXT_PATH}/build_files/CURSOR_VERSION" ]]; then
-        CURSOR_VERSION=$(tr -d '\n\r' < "${CONTEXT_PATH}/build_files/CURSOR_VERSION" | xargs)
-    fi
-fi
-if [[ -z "$CURSOR_VERSION" ]]; then
-    echo "::error::Could not determine Cursor version from API or CURSOR_VERSION file"
-    exit 1
-fi
-echo "::notice::Installing Cursor ${CURSOR_VERSION}"
-CURSOR_MAJOR_MINOR="${CURSOR_VERSION%.*}"
+# Cursor: no dnf repo; detect arch, fetch the latest version from the Cursor API
+# and install the matching RPM. The download endpoint requires a major.minor path
+# segment (e.g. 3.6), so we derive it from the API-reported version. The API
+# platform must match the target arch. Falls back to the CURSOR_VERSION file if
+# the API is unreachable.
 case "$(uname -m)" in
-    x86_64)  CURSOR_ARCH="linux-x64-rpm" ;;
-    aarch64) CURSOR_ARCH="linux-arm64-rpm" ;;
-    *)       echo "::warning::Unsupported arch for Cursor: $(uname -m), skipping" ; CURSOR_ARCH="" ;;
+    x86_64)  CURSOR_API_PLATFORM="linux-x64";   CURSOR_ARCH="linux-x64-rpm" ;;
+    aarch64) CURSOR_API_PLATFORM="linux-arm64"; CURSOR_ARCH="linux-arm64-rpm" ;;
+    *)       echo "::warning::Unsupported arch for Cursor: $(uname -m), skipping" ; CURSOR_API_PLATFORM=""; CURSOR_ARCH="" ;;
 esac
 if [[ -n "$CURSOR_ARCH" ]]; then
+    CURSOR_VERSION=""
+    if api_resp=$(curl -sSfL "https://cursor.com/api/download?platform=${CURSOR_API_PLATFORM}&releaseTrack=latest" 2>/dev/null); then
+        CURSOR_VERSION=$(echo "$api_resp" | jq -r '.version // empty' 2>/dev/null || true)
+    fi
+    if [[ -z "$CURSOR_VERSION" ]]; then
+        echo "::warning::Cursor API unreachable, falling back to CURSOR_VERSION file"
+        if [[ -n "${CONTEXT_PATH:-}" ]] && [[ -f "${CONTEXT_PATH}/build_files/CURSOR_VERSION" ]]; then
+            CURSOR_VERSION=$(tr -d '\n\r' < "${CONTEXT_PATH}/build_files/CURSOR_VERSION" | xargs)
+        fi
+    fi
+    if [[ -z "$CURSOR_VERSION" ]]; then
+        echo "::error::Could not determine Cursor version from API or CURSOR_VERSION file"
+        exit 1
+    fi
+    echo "::notice::Installing Cursor ${CURSOR_VERSION}"
+    CURSOR_MAJOR_MINOR="${CURSOR_VERSION%.*}"
     CURSOR_RPM_URL="https://api2.cursor.sh/updates/download/golden/${CURSOR_ARCH}/cursor/${CURSOR_MAJOR_MINOR}"
     curl -sSLf -o /tmp/cursor.rpm "$CURSOR_RPM_URL"
     dnf5 install -y /tmp/cursor.rpm

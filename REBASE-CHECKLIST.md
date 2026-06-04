@@ -7,7 +7,7 @@ Use this before pushing and before testing a rebase on your laptop.
 ## 1. Before you push (repo: `bazzite-dxcursor`)
 
 - [ ] **No RPMs in the repo** – You are not shipping the Cursor RPMs in the image; the build downloads them from the Cursor URL. Remove any `*.rpm` from the repo if present (and you’ve removed `*.rpm` from `.gitignore`).
-- [ ] **Cursor install** – `build_files/20-install-apps.sh` installs Cursor from the API URL using `build_files/CURSOR_VERSION` (full version; URL uses major.minor). No change needed unless you want to tweak the block.
+- [ ] **Cursor install** – `build_files/20-install-apps.sh` installs Cursor by querying the Cursor API for the latest version at build time and downloading the matching RPM (URL uses major.minor). `build_files/CURSOR_VERSION` is only an offline fallback if the API is unreachable. No change needed unless you want to tweak the block.
 - [ ] **Cursor post-install** – First-login hook and skel are in place:
   - `system_files/usr/share/ublue-os/user-setup.hooks.d/12-cursor-extensions.sh` – copies skel settings, installs remote-containers, remote-ssh, vscode-containers.
   - `system_files/etc/skel/.config/Cursor/User/settings.json` – default font and `update.mode: "none"`.
@@ -21,7 +21,7 @@ Use this before pushing and before testing a rebase on your laptop.
 ## 2. Push and build
 
 - [ ] Push to your default branch (e.g. `main`).
-- [ ] Trigger the **Build Bazzite DX** workflow (or let it run on push if configured).
+- [ ] Trigger the **Build Bazzite DX Cursor** workflow (or let it run on push / the daily schedule if configured).
 - [ ] Wait for the build to finish and the image to be pushed to GHCR (e.g. `ghcr.io/YOUR_ORG/bazzite-dxcursor:latest`). If signing is skipped, the image is there but unsigned.
 
 ---
@@ -56,7 +56,7 @@ Use this before pushing and before testing a rebase on your laptop.
 | Item | Location / value |
 |------|-------------------|
 | Repo (actual) | `bazzite-dxcursor/` (child of workspace root) |
-| Cursor version pin | `build_files/CURSOR_VERSION` |
+| Cursor version fallback | `build_files/CURSOR_VERSION` |
 | Cursor install | `build_files/20-install-apps.sh` |
 | Cursor first-login | `system_files/.../12-cursor-extensions.sh` |
 | Cursor skel | `system_files/etc/skel/.config/Cursor/User/settings.json` |
